@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, FolderKanban, Package, CreditCard,
   Landmark, FileCheck, ArrowLeftRight, Receipt, Truck, Zap, Menu, X,
   FileText, ClipboardList, HardHat, BarChart3, Shield, Settings, LogOut,
-  ShoppingCart, BookOpen, RefreshCw, UserCheck, Scale, ClipboardCheck, LineChart, Link2,
+  ShoppingCart, BookOpen, RefreshCw, UserCheck, Scale, ClipboardCheck, LineChart, Link2, CheckCheck,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useStore } from '../store/useStore'
@@ -83,7 +83,8 @@ export default function Layout() {
         { to: '/balance-sheet',   label: t('nav.balanceSheet', lang),   icon: Scale           },
         { to: '/income-statement',label: t('nav.incomeStatement', lang),icon: LineChart       },
         { to: '/exchange-rates',  label: t('nav.exchangeRates', lang),  icon: RefreshCw       },
-        { to: '/bank-statement',  label: t('nav.bankStatement', lang),  icon: BarChart3       },
+        { to: '/bank-statement',      label: t('nav.bankStatement', lang),      icon: BarChart3    },
+        { to: '/bank-reconciliation', label: t('nav.bankReconciliation', lang), icon: CheckCheck   },
       ],
     },
     {

@@ -81,8 +81,8 @@ export interface Supplier {
 }
 
 // ─── Bank Accounts ───────────────────────────────────────────────────────────
-/** a = cash  |  b = current bank  |  c = checks box  |  d = postdated (auto)  |  e = returned checks */
-export type BankAccountType = 'cash' | 'current' | 'checks_box' | 'postdated' | 'returned_checks'
+/** a = cash  |  b = current bank  |  c = checks box  |  d = postdated (auto)  |  e = returned checks  |  f = issued checks (auto) */
+export type BankAccountType = 'cash' | 'current' | 'checks_box' | 'postdated' | 'returned_checks' | 'issued_checks'
 
 export interface BankAccount {
   id: string          // BNK2026000001

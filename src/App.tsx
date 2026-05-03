@@ -30,6 +30,7 @@ import TrialBalance from './components/TrialBalance'
 import BalanceSheet from './components/BalanceSheet'
 import IncomeStatement from './components/IncomeStatement'
 import AccountMappings from './components/AccountMappings'
+import BankReconciliation from './components/BankReconciliation'
 
 // Step 6: lazy-load the heavy chart/aggregation views so the
 // initial bundle stays small. Routes other than these render
@@ -96,6 +97,7 @@ export default function App() {
             <Route path="exchange-rates"      element={<ExchangeRates />} />
             <Route path="client-statement"    element={<ClientStatement />} />
             <Route path="bank-statement"      element={<BankStatement />} />
+            <Route path="bank-reconciliation" element={<BankReconciliation />} />
           </Route>
         </Routes>
       </Suspense>

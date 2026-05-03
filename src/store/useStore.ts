@@ -378,9 +378,25 @@ export const useStore = create<AppState>()(
             linkedBankId: id,
             createdAt: now(),
           }
+          // Auto-create a linked Issued Checks account
+          const counters3 = nextCounter(counters2, 'BNK')
+          const issuedChecksId = generateId('BNK', counters3)
+          const issuedChecksAcct: BankAccount = {
+            id: issuedChecksId,
+            name: `${data.name} — Issued Checks`,
+            bankName: data.bankName,
+            accountNumber: '',
+            iban: '',
+            initialBalance: 0,
+            currency: data.currency,
+            notes: '',
+            accountType: 'issued_checks',
+            linkedBankId: id,
+            createdAt: now(),
+          }
           set(s => ({
-            banks: [...s.banks, bank, postdated],
-            counters: nextCounter(nextCounter(s.counters, 'BNK'), 'BNK'),
+            banks: [...s.banks, bank, postdated, issuedChecksAcct],
+            counters: nextCounter(nextCounter(nextCounter(s.counters, 'BNK'), 'BNK'), 'BNK'),
           }))
         } else {
           set(s => ({ banks: [...s.banks, bank], counters: nextCounter(s.counters, 'BNK') }))
@@ -390,14 +406,19 @@ export const useStore = create<AppState>()(
       updateBank: (id, data) =>
         set(s => {
           let banks = s.banks.map(b => b.id === id ? { ...b, ...data } : b)
-          // Sync postdated account name when a current bank is renamed
+          // Sync postdated + issued_checks account names when a current bank is renamed
           const updated = banks.find(b => b.id === id)
           if ((updated?.accountType ?? 'current') === 'current' && data.name) {
-            banks = banks.map(b =>
-              b.accountType === 'postdated' && b.linkedBankId === id
-                ? { ...b, name: `${data.name} — Postdated`, bankName: data.bankName ?? b.bankName, currency: data.currency ?? b.currency }
-                : b
-            )
+            banks = banks.map(b => {
+              if (b.linkedBankId !== id) return b
+              if (b.accountType === 'postdated') {
+                return { ...b, name: `${data.name} — Postdated`, bankName: data.bankName ?? b.bankName, currency: data.currency ?? b.currency }
+              }
+              if (b.accountType === 'issued_checks') {
+                return { ...b, name: `${data.name} — Issued Checks`, bankName: data.bankName ?? b.bankName, currency: data.currency ?? b.currency }
+              }
+              return b
+            })
           }
           return { banks }
         }),
@@ -974,6 +995,16 @@ export const useStore = create<AppState>()(
         if (type === 'returned_checks') {
           return checks
             .filter(c => c.type === 'received' && (c.status === 'bounced' || c.status === 'returned'))
+            .reduce((s, c) => s + c.amount, 0)
+        }
+
+        // ── f. Issued checks account ─────────────────────────────────────────
+        // Total of pending issued checks for the linked current bank.
+        // Represents money committed but not yet deducted (clears when check status → 'cleared').
+        if (type === 'issued_checks') {
+          const linkedId = bank.linkedBankId
+          return checks
+            .filter(c => c.bankAccountId === linkedId && c.type === 'issued' && c.status === 'pending')
             .reduce((s, c) => s + c.amount, 0)
         }
 

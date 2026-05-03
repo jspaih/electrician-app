@@ -3,7 +3,7 @@ import { useStore } from '../store/useStore'
 import { formatCurrency, formatDate } from '../utils/helpers'
 import {
   Plus, Pencil, Trash2, X, Landmark, TrendingUp, TrendingDown,
-  Banknote, Archive, Clock, RotateCcw, Info,
+  Banknote, Archive, Clock, RotateCcw, Info, Send,
 } from 'lucide-react'
 import type { BankAccount, BankAccountType } from '../types'
 import { useT } from '../hooks/useT'
@@ -27,7 +27,7 @@ const L = {
     typeChecksBox: 'Checks Box',
     typeReturned: 'Returned Checks Account',
     typePostdated: 'Postdated Checks (auto)',
-    typeCurrentHint: 'A Postdated Checks sub-account will be created automatically.',
+    typeCurrentHint: 'Postdated Checks and Issued Checks sub-accounts will be created automatically.',
     shortName: 'Account Name (English) *',
     shortNamePh: 'Main Business Account',
     nameAr: 'Account Name (Arabic)',
@@ -57,10 +57,15 @@ const L = {
     depositedChecks: 'deposited check(s) pending clearance',
     checksInBox: 'checks in box',
     returnedChecks: 'returned check(s)',
+    projectedBalance: 'Projected Balance',
+    projectedHint: '(after all pending items clear)',
     noPostdated: 'No deposited checks pending',
     returnedFrom: 'Returned from:',
     noReturned: 'No returned or bounced checks',
     autoCreated: 'Auto-managed — tracks checks deposited to',
+    issuedChecksLabel: 'Issued Checks (Pending)',
+    noIssuedChecks: 'No pending issued checks',
+    issuedChecksHint: 'Auto-managed — tracks checks issued from',
 
     // Sections
     sectionCash: 'Cash Accounts',
@@ -94,7 +99,7 @@ const L = {
     typeChecksBox: 'حساب صندوق الشيكات',
     typeReturned: 'حساب الشيكات المرتجعة',
     typePostdated: 'شيكات مؤجلة (تلقائي)',
-    typeCurrentHint: 'سيتم إنشاء حساب فرعي للشيكات المؤجلة تلقائياً.',
+    typeCurrentHint: 'سيتم إنشاء حسابات فرعية للشيكات المؤجلة والشيكات الصادرة تلقائياً.',
     shortName: 'اسم الحساب (إنجليزي) *',
     shortNamePh: 'Main Business Account',
     nameAr: 'اسم الحساب (عربي)',
@@ -124,10 +129,15 @@ const L = {
     depositedChecks: 'شيك مودَع بانتظار التسوية',
     checksInBox: 'شيك في الصندوق',
     returnedChecks: 'شيك مرتجع',
+    projectedBalance: 'الرصيد المتوقع',
+    projectedHint: '(بعد تسوية جميع البنود المعلقة)',
     noPostdated: 'لا توجد شيكات مودَعة بانتظار التسوية',
     returnedFrom: 'مرتجع من:',
     noReturned: 'لا توجد شيكات مرتجعة أو مرفوضة',
     autoCreated: 'مُدار تلقائياً — يتتبع الشيكات المودَعة إلى',
+    issuedChecksLabel: 'الشيكات الصادرة (معلقة)',
+    noIssuedChecks: 'لا توجد شيكات صادرة معلقة',
+    issuedChecksHint: 'مُدار تلقائياً — يتتبع الشيكات الصادرة من',
 
     // Sections
     sectionCash: 'الحسابات النقدية',
@@ -162,6 +172,7 @@ function typeIcon(t: BankAccountType) {
     checks_box:       <Archive className="w-4 h-4" />,
     postdated:        <Clock className="w-4 h-4" />,
     returned_checks:  <RotateCcw className="w-4 h-4" />,
+    issued_checks:    <Send className="w-4 h-4" />,
   }
   return map[t] ?? <Landmark className="w-4 h-4" />
 }
@@ -173,6 +184,7 @@ function typeBadgeColor(t: BankAccountType) {
     checks_box:      'bg-yellow-900/40 text-yellow-300 border-yellow-700/40',
     postdated:       'bg-purple-900/40 text-purple-300 border-purple-700/40',
     returned_checks: 'bg-red-900/40 text-red-300 border-red-700/40',
+    issued_checks:   'bg-orange-900/40 text-orange-300 border-orange-700/40',
   }
   return map[t] ?? 'bg-gray-700 text-gray-300'
 }
@@ -339,8 +351,12 @@ export default function Banks() {
   const postdatedMap   = Object.fromEntries(
     banks.filter(b => b.accountType === 'postdated').map(b => [b.linkedBankId, b])
   )
+  // Issued checks accounts are indexed by linkedBankId for quick lookup
+  const issuedChecksMap = Object.fromEntries(
+    banks.filter(b => b.accountType === 'issued_checks').map(b => [b.linkedBankId, b])
+  )
 
-  const hasAny = banks.filter(b => b.accountType !== 'postdated').length > 0
+  const hasAny = banks.filter(b => b.accountType !== 'postdated' && b.accountType !== 'issued_checks').length > 0
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
   function recentTxns(bank: BankAccount) {
@@ -475,8 +491,41 @@ export default function Banks() {
       c => c.bankAccountId === bank.id && c.type === 'received' && c.status === 'deposited'
     )
 
+    const issuedAcct = issuedChecksMap[bank.id]
+    const issuedBal  = issuedAcct ? getBankBalance(issuedAcct.id) : 0
+    const pendingIssuedChecks = checks.filter(
+      c => c.bankAccountId === bank.id && c.type === 'issued' && c.status === 'pending'
+    )
+
+    const actualBalance = getBankBalance(bank.id)
+    // Projected = actual + deposited received (will clear in) - pending issued (will clear out)
+    const projectedBalance = actualBalance + postBal - issuedBal
+
     return (
       <CardBase bank={bank}>
+        {/* Projected balance row */}
+        {(postBal > 0 || issuedBal > 0) && (
+          <div className="mt-3 pt-3 border-t border-gray-700/60 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-gray-500">{t.projectedBalance}</p>
+              <p className="text-[10px] text-gray-600">{t.projectedHint}</p>
+            </div>
+            <div className="text-right">
+              <p className={`text-lg font-bold ${projectedBalance >= 0 ? 'text-blue-300' : 'text-red-400'}`}>
+                {formatCurrency(projectedBalance, bank.currency)}
+              </p>
+              <div className="flex items-center gap-3 justify-end mt-0.5">
+                {postBal > 0 && (
+                  <span className="text-[10px] text-purple-400">+{formatCurrency(postBal, bank.currency)} postdated</span>
+                )}
+                {issuedBal > 0 && (
+                  <span className="text-[10px] text-orange-400">-{formatCurrency(issuedBal, bank.currency)} issued</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Postdated sub-panel */}
         {postdated && (
           <div className="mt-4 pt-4 border-t border-gray-700">
@@ -510,6 +559,48 @@ export default function Banks() {
                 <p className="text-xs text-gray-600 mt-1">{t.noPostdated}</p>
               )}
               <p className="text-xs text-gray-600 mt-2 italic">{t.autoCreated} {bank.name}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Issued checks sub-panel */}
+        {issuedAcct && (
+          <div className="mt-3">
+            <div className="bg-orange-900/20 border border-orange-700/30 rounded-xl p-3">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <Send className="w-3.5 h-3.5 text-orange-400" />
+                  <span className="text-xs font-semibold text-orange-300">{t.issuedChecksLabel}</span>
+                  <span className="font-mono text-xs text-gray-600">{issuedAcct.id}</span>
+                </div>
+                <span className={`text-sm font-bold ${issuedBal > 0 ? 'text-orange-300' : 'text-gray-500'}`}>
+                  {formatCurrency(issuedBal, bank.currency)}
+                </span>
+              </div>
+              {pendingIssuedChecks.length > 0 ? (
+                <div className="mt-2 space-y-1">
+                  {pendingIssuedChecks.slice(0, 4).map(c => {
+                    const overdue = new Date(c.dueDate) < new Date()
+                    return (
+                      <div key={c.id} className="flex items-center justify-between text-xs">
+                        <span className="text-gray-400">#{c.checkNumber} — {c.payeeName}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={`${overdue ? 'text-red-400' : 'text-gray-500'}`}>
+                            {formatDate(c.dueDate)}{overdue ? ' ⚠' : ''}
+                          </span>
+                          <span className="text-orange-300 font-medium">{formatCurrency(c.amount, c.currency)}</span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {pendingIssuedChecks.length > 4 && (
+                    <p className="text-xs text-gray-600">+{pendingIssuedChecks.length - 4} more</p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-600 mt-1">{t.noIssuedChecks}</p>
+              )}
+              <p className="text-xs text-gray-600 mt-2 italic">{t.issuedChecksHint} {bank.name}</p>
             </div>
           </div>
         )}

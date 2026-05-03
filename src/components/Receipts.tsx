@@ -51,7 +51,8 @@ const L = {
     checksTotal: 'Total from checks',
     checkNumPlaceholder: '123456',
     // Edit mode
-    editOnlyNotes: 'Only notes can be edited after saving.',
+    editOnlyNotes: 'Only notes and invoice link can be edited after saving.',
+    linkInvoice: 'Link to Sales Invoice',
     checksOnRecord: 'Checks on Record',
     receivedChecks: 'Received Checks',
     checkDue: 'due',
@@ -110,7 +111,8 @@ const L = {
     checksTotal: 'الإجمالي من الشيكات',
     checkNumPlaceholder: '123456',
     // Edit mode
-    editOnlyNotes: 'يمكن تعديل الملاحظات فقط بعد الحفظ.',
+    editOnlyNotes: 'يمكن تعديل الملاحظات ورابط الفاتورة فقط بعد الحفظ.',
+    linkInvoice: 'ربط بفاتورة مبيعات',
     checksOnRecord: 'الشيكات المسجلة',
     receivedChecks: 'الشيكات المستلمة',
     checkDue: 'استحقاق',
@@ -166,36 +168,122 @@ const EMPTY_RECEIPT = (): Omit<Receipt, 'id' | 'createdAt'> => ({
 
 function PrintModal({ receipt, onClose }: { receipt: Receipt; onClose: () => void }) {
   const t = useT(L)
-  const { clients, projects, banks, settings, receipts: _r } = useStore()
+  const { clients, projects, banks, checks: allChecks, settings } = useStore()
+  const isAr    = settings.language === 'ar'
   const client  = clients.find(c => c.id === receipt.clientId)
   const project = projects.find(p => p.id === receipt.projectId)
   const account = banks.find(b => b.id === receipt.receivedAccountId)
-  const pm = (receipt.paymentMethod ?? 'cash') as PaymentMethodType
+  const pm      = (receipt.paymentMethod ?? 'cash') as PaymentMethodType
   const currency = receipt.currency ?? settings.currency ?? 'ILS'
 
+  // Checks linked to this receipt
+  const rcvChecks = (allChecks as any[]).filter(c => c.paymentId === receipt.id && c.type === 'received')
+
   function doPrint() {
+    const dir = isAr ? 'rtl' : 'ltr'
+    const ra  = isAr ? 'left' : 'right'
+    const lbl = {
+      receipt:     isAr ? 'إيصال استلام'        : 'Receipt',
+      client:      isAr ? 'العميل'              : 'Client',
+      project:     isAr ? 'المشروع'             : 'Project',
+      date:        isAr ? 'التاريخ'             : 'Date',
+      paidVia:     isAr ? 'طريقة الدفع'         : 'Payment Method',
+      receivedAt:  isAr ? 'حُصِّل في'            : 'Received at',
+      notes:       isAr ? 'ملاحظات'             : 'Notes',
+      checkNo:     isAr ? 'رقم الشيك'           : 'Check #',
+      issuer:      isAr ? 'الساحب'              : 'Issuer',
+      dueDate:     isAr ? 'تاريخ الاستحقاق'     : 'Due Date',
+      amount:      isAr ? 'المبلغ'              : 'Amount',
+      total:       isAr ? 'الإجمالي'            : 'Total',
+      checks:      isAr ? 'الشيكات المستلمة'    : 'Received Checks',
+      receivedBy:  isAr ? 'استلم'               : 'Received by',
+      authorizedBy:isAr ? 'اعتمد'               : 'Authorized by',
+    }
+    const methodName = pm === 'cash'
+      ? (isAr ? 'نقدي' : 'Cash')
+      : pm === 'check'
+      ? (isAr ? 'شيك' : 'Check')
+      : (isAr ? 'تحويل بنكي' : 'Bank Transfer')
+
+    const checkRows = rcvChecks.map((c: any) => `
+      <tr>
+        <td>${c.checkNumber}</td>
+        <td>${c.issuerName || '—'}</td>
+        <td>${formatDate(c.dueDate)}</td>
+        <td style="text-align:${ra}">${formatCurrency(c.amount, c.currency || currency)}</td>
+      </tr>`).join('')
+
     const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>${t.receiptLbl} ${receipt.id}</title>
+<html dir="${dir}" lang="${settings.language}">
+<head><meta charset="utf-8">
+<title>${lbl.receipt} ${receipt.id}</title>
 <style>
-  body{font-family:Arial,sans-serif;padding:32px;color:#111;max-width:480px;margin:0 auto}
-  h1{font-size:22px;margin-bottom:2px}
-  .sub{color:#555;font-size:12px;margin-bottom:20px}
-  .row{display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px}
-  .label{color:#666}.value{font-weight:600}
-  .total{border-top:2px solid #111;margin-top:12px;padding-top:10px;font-size:18px;font-weight:700}
-  .company{font-size:12px;color:#888;margin-top:24px;text-align:center}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,'Noto Sans Arabic',sans-serif;padding:28px 36px;color:#1a1a1a;font-size:13px}
+.hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1a1a1a;padding-bottom:14px;margin-bottom:20px}
+.co-name{font-size:18px;font-weight:700}
+.co-sub{font-size:11px;color:#555;margin-top:3px;line-height:1.5}
+.doc-side{text-align:${ra}}
+.doc-title{font-size:16px;font-weight:700;color:#1d4ed8}
+.doc-id{font-size:12px;color:#444;margin-top:3px}
+.doc-date{font-size:12px;color:#666;margin-top:2px}
+.badge{display:inline-block;background:#dbeafe;border:1px solid #93c5fd;border-radius:4px;padding:2px 10px;font-size:11px;font-weight:600;color:#1d4ed8;margin-top:4px}
+.info{width:100%;border-collapse:collapse;margin-bottom:18px}
+.info td{padding:6px 8px;font-size:13px;border-bottom:1px solid #f0f0f0}
+.info td:first-child{color:#666;width:32%;font-weight:500}
+.info td:last-child{font-weight:600}
+.sec-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;border-bottom:1px solid #ddd;padding-bottom:4px;margin-bottom:8px}
+.chks{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:18px}
+.chks th{background:#eff6ff;border:1px solid #bfdbfe;padding:6px 8px;font-weight:600;color:#1e40af}
+.chks td{border:1px solid #ddd;padding:6px 8px}
+.total{display:flex;justify-content:space-between;border-top:2px solid #1a1a1a;margin-top:8px;padding-top:10px;font-size:17px;font-weight:700}
+.sig{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:44px}
+.sig-box{border-top:1px solid #aaa;padding-top:6px;text-align:center;font-size:11px;color:#666}
+.footer{margin-top:20px;text-align:center;font-size:10px;color:#aaa;border-top:1px solid #eee;padding-top:8px}
+@media print{body{padding:12mm 16mm}@page{size:A4;margin:0}}
 </style></head>
 <body>
-  <h1>${t.receiptLbl}</h1>
-  <div class="sub">${receipt.id} &nbsp;|&nbsp; ${settings.companyName || ''}</div>
-  <div class="row"><span class="label">${t.client}</span><span class="value">${client?.name ?? '—'}</span></div>
-  ${project ? `<div class="row"><span class="label">${t.project}</span><span class="value">${project.name}</span></div>` : ''}
-  <div class="row"><span class="label">${t.date}</span><span class="value">${formatDate(receipt.date)}</span></div>
-  <div class="row"><span class="label">${t.paidVia}</span><span class="value">${t[METHOD_KEY[pm]]}${account ? ` — ${account.name}` : ''}</span></div>
-  <div class="row total"><span class="label">${t.pTotal}</span><span class="value">${formatCurrency(receipt.total, currency)}</span></div>
-  ${settings.companyName ? `<div class="company">${settings.companyName}${settings.companyPhone ? ` · ${settings.companyPhone}` : ''}</div>` : ''}
+<div class="hdr">
+  <div>
+    <div class="co-name">${settings.companyName || '&nbsp;'}</div>
+    <div class="co-sub">${[settings.companyPhone, settings.companyAddress].filter(Boolean).join(' &nbsp;·&nbsp; ')}</div>
+  </div>
+  <div class="doc-side">
+    <div class="doc-title">${lbl.receipt}</div>
+    <div class="doc-id">${receipt.id}</div>
+    <div class="doc-date">${formatDate(receipt.date)}</div>
+    <span class="badge">${methodName}</span>
+  </div>
+</div>
+<table class="info">
+  <tr><td>${lbl.client}</td><td>${client?.name ?? '—'}</td></tr>
+  ${project ? `<tr><td>${lbl.project}</td><td>${project.name}</td></tr>` : ''}
+  <tr><td>${lbl.paidVia}</td><td>${methodName}${account ? ' — ' + account.name : ''}</td></tr>
+  ${receipt.notes ? `<tr><td>${lbl.notes}</td><td>${receipt.notes}</td></tr>` : ''}
+</table>
+${rcvChecks.length > 0 ? `
+<div class="sec-title">${lbl.checks}</div>
+<table class="chks">
+  <thead><tr>
+    <th>${lbl.checkNo}</th>
+    <th>${lbl.issuer}</th>
+    <th>${lbl.dueDate}</th>
+    <th>${lbl.amount}</th>
+  </tr></thead>
+  <tbody>${checkRows}</tbody>
+</table>` : ''}
+<div class="total">
+  <span>${lbl.total}</span>
+  <span>${formatCurrency(receipt.total, currency)}</span>
+</div>
+<div class="sig">
+  <div class="sig-box">${lbl.receivedBy}</div>
+  <div class="sig-box">${lbl.authorizedBy}</div>
+</div>
+<div class="footer">${settings.companyName ? settings.companyName + ' &nbsp;·&nbsp; ' : ''}${receipt.id} &nbsp;·&nbsp; ${formatDate(receipt.date)}</div>
 </body></html>`
-    const win = window.open('', '_blank', 'width=520,height=600')
+
+    const win = window.open('', '_blank', 'width=680,height=820')
     if (!win) return
     win.document.write(html)
     win.document.close()
@@ -205,19 +293,61 @@ function PrintModal({ receipt, onClose }: { receipt: Receipt; onClose: () => voi
   return (
     <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4">
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-sm shadow-2xl p-6 space-y-4">
+
+        {/* Header */}
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-white">{t.receiptLbl} {receipt.id}</h3>
+          <div>
+            <h3 className="font-semibold text-white">{t.receiptLbl} {receipt.id}</h3>
+            <p className="text-xs text-gray-500">{formatDate(receipt.date)}</p>
+          </div>
           <button onClick={onClose} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
         </div>
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between"><span className="text-gray-400">{t.client}</span><span className="text-white">{client?.name ?? '—'}</span></div>
-          <div className="flex justify-between"><span className="text-gray-400">{t.date}</span><span className="text-gray-300">{formatDate(receipt.date)}</span></div>
-          <div className="flex justify-between"><span className="text-gray-400">{t.paidVia}</span><span className="text-gray-300">{t[METHOD_KEY[pm]]}</span></div>
-          <div className="flex justify-between border-t border-gray-700 pt-2 font-bold">
+
+        {/* Preview */}
+        <div className="bg-gray-900/60 rounded-xl p-4 space-y-2.5 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-400">{t.client.replace(' *', '')}</span>
+            <span className="text-white font-medium">{client?.name ?? '—'}</span>
+          </div>
+          {project && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">{t.project}</span>
+              <span className="text-gray-300">{project.name}</span>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <span className="text-gray-400">{t.date}</span>
+            <span className="text-gray-300">{formatDate(receipt.date)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">{t.paidVia}</span>
+            <span className="text-gray-300">{t[METHOD_KEY[pm]]}{account ? ` — ${account.name}` : ''}</span>
+          </div>
+          {rcvChecks.length > 0 && (
+            <div className="border-t border-gray-700 pt-2 space-y-1.5">
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{t.checksOnRecord}</p>
+              {rcvChecks.map((c: any) => (
+                <div key={c.id} className="grid grid-cols-4 gap-1 text-xs items-center">
+                  <span className="font-mono text-yellow-400">#{c.checkNumber}</span>
+                  <span className="text-gray-400 truncate">{c.issuerName}</span>
+                  <span className="text-gray-500 text-center">{formatDate(c.dueDate)}</span>
+                  <span className="text-white text-right">{formatCurrency(c.amount, c.currency || currency)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {receipt.notes && (
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-400 shrink-0">{t.notes}</span>
+              <span className="text-gray-500 text-right text-xs truncate max-w-[160px]">{receipt.notes}</span>
+            </div>
+          )}
+          <div className="flex justify-between border-t border-gray-700 pt-2 font-bold text-base">
             <span className="text-gray-400">{t.pTotal}</span>
-            <span className="text-yellow-400">{formatCurrency(receipt.total, receipt.currency ?? 'ILS')}</span>
+            <span className="text-green-400">{formatCurrency(receipt.total, currency)}</span>
           </div>
         </div>
+
         <button className="btn-primary w-full" onClick={doPrint}>{t.print}</button>
       </div>
     </div>
@@ -283,7 +413,44 @@ function Modal({
   }
 
   function addEntry() {
-    setCheckEntries(entries => [...entries, newCheckEntry()])
+    setCheckEntries(entries => {
+      const last = entries[entries.length - 1]
+      if (!last) return [...entries, newCheckEntry()]
+
+      // ── Sequential check number ────────────────────────────────────────────
+      const nextCheckNumber = (() => {
+        const match = last.checkNumber.match(/^(\D*)(\d+)(\D*)$/)
+        if (!match) return last.checkNumber
+        const [, prefix, digits, suffix] = match
+        const next = String(parseInt(digits, 10) + 1).padStart(digits.length, '0')
+        return prefix + next + suffix
+      })()
+
+      // ── Same calendar day, next month (local date to avoid UTC shift) ──────
+      const nextDueDate = (() => {
+        if (!last.dueDate) return ''
+        const d = new Date(last.dueDate + 'T00:00:00')
+        const targetDay = d.getDate()
+        const next = new Date(d.getFullYear(), d.getMonth() + 1, targetDay)
+        // Clamp to last day of month on overflow (e.g. Jan 31 → Feb 28)
+        if (next.getMonth() !== ((d.getMonth() + 1) % 12)) {
+          next.setDate(0)
+        }
+        const y  = next.getFullYear()
+        const mo = String(next.getMonth() + 1).padStart(2, '0')
+        const d2 = String(next.getDate()).padStart(2, '0')
+        return `${y}-${mo}-${d2}`
+      })()
+
+      return [...entries, {
+        id: Math.random().toString(36).slice(2),
+        checkNumber: nextCheckNumber,
+        amount: last.amount,
+        currency: last.currency,
+        dueDate: nextDueDate,
+        issuerName: last.issuerName,
+      }]
+    })
   }
 
   function removeEntry(id: string) {
@@ -300,8 +467,8 @@ function Modal({
     ? (checkEntries[0]?.currency || currency)
     : currency
 
-  // Validation: check receipts require at least one entry with amount + checkNumber
-  const isValid = isEdit || (form.clientId && isValidDate(form.date) && (
+  // Validation: check receipts require at least one entry with amount + checkNumber; receivedAt is mandatory
+  const isValid = isEdit || (form.clientId && isValidDate(form.date) && !!form.receivedAccountId && (
     pm === 'check'
       ? checkEntries.length > 0 && checksTotal > 0 && checkEntries.every(e => e.checkNumber.trim())
       : form.total > 0
@@ -495,22 +662,23 @@ function Modal({
               </div>
             )}
 
-            {/* Settle sales invoice (optional) */}
-            {clientInvoices.length > 0 && (
-              <div>
-                <label className="label">{t.settleInvoice}</label>
-                <select className="input" value={form.salesInvoiceId ?? ''}
-                  onChange={e => setField('salesInvoiceId', e.target.value)}>
-                  <option value="">{t.noInvoice}</option>
-                  {clientInvoices.map((inv: any) => (
-                    <option key={inv.id} value={inv.id}>
-                      {inv.id} — {formatCurrency(inv.total, inv.currency ?? 'ILS')} ({formatDate(inv.date)})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
           </fieldset>
+
+          {/* Settle sales invoice — always editable even in edit mode */}
+          {clientInvoices.length > 0 && (
+            <div>
+              <label className="label">{isEdit ? t.linkInvoice : t.settleInvoice}</label>
+              <select className="input" value={form.salesInvoiceId ?? ''}
+                onChange={e => setField('salesInvoiceId', e.target.value)}>
+                <option value="">{t.noInvoice}</option>
+                {clientInvoices.map((inv: any) => (
+                  <option key={inv.id} value={inv.id}>
+                    {inv.id} — {formatCurrency(inv.total, inv.currency ?? 'ILS')} ({formatDate(inv.date)})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* ── Read-only check cards (edit mode, check receipt) ── */}
           {isEdit && pm === 'check' && editReceivedChecks.length > 0 && (
@@ -581,8 +749,8 @@ export default function Receipts() {
 
   function handleSave(data: Omit<Receipt, 'id' | 'createdAt'>, checkEntries: CheckEntry[]) {
     if (modal.receipt) {
-      // Edit mode: only notes may change
-      updateReceipt(modal.receipt.id, { notes: data.notes })
+      // Edit mode: notes and invoice link may change
+      updateReceipt(modal.receipt.id, { notes: data.notes, salesInvoiceId: data.salesInvoiceId })
     } else {
       const receipt = addReceipt(data)
       // Create a Check record for each check entry

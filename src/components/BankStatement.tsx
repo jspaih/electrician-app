@@ -27,6 +27,8 @@ const L = {
     closingBalance: 'Closing Balance',
     totalIn: 'Total In',
     totalOut: 'Total Out',
+    projectedBalance: 'Projected Balance',
+    projectedHint: 'incl. pending items',
     typePayment: 'Payment',
     typeTransfer: 'Transfer',
     transferFrom: 'Transfer from',
@@ -54,6 +56,8 @@ const L = {
     closingBalance: 'الرصيد الختامي',
     totalIn: 'إجمالي الوارد',
     totalOut: 'إجمالي الصادر',
+    projectedBalance: 'الرصيد المتوقع',
+    projectedHint: 'شامل البنود المعلقة',
     typePayment: 'دفعة',
     typeTransfer: 'تحويل',
     transferFrom: 'تحويل من',
@@ -66,7 +70,7 @@ const CASH_ID = '__cash__'
 
 export default function BankStatement() {
   const t = useT(L)
-  const { banks, payments, transfers, checks, settings } = useStore()
+  const { banks, payments, transfers, checks, settings, getBankBalance } = useStore()
   const defaultCurrency = settings.currency || 'ILS'
   const companyName = settings.companyName || 'Company'
 
@@ -206,6 +210,17 @@ export default function BankStatement() {
   const closingBalance = openingBalance + totalIn - totalOut
   const cur = (accountId === CASH_ID) ? defaultCurrency : (bank?.currency || defaultCurrency)
 
+  // Projected balance: closing + deposited received checks (will clear in) - pending issued checks (will clear out)
+  const isCurrent = bank && (bank.accountType ?? 'current') === 'current'
+  const depositedReceived = isCurrent
+    ? checks.filter(c => c.bankAccountId === accountId && c.type === 'received' && c.status === 'deposited').reduce((s,c) => s+c.amount, 0)
+    : 0
+  const pendingIssued = isCurrent
+    ? checks.filter(c => c.bankAccountId === accountId && c.type === 'issued' && c.status === 'pending').reduce((s,c) => s+c.amount, 0)
+    : 0
+  const projectedBalance = closingBalance + depositedReceived - pendingIssued
+  const hasProjected = isCurrent && (depositedReceived > 0 || pendingIssued > 0)
+
   function printStatement() {
     const accountName = accountId === CASH_ID ? t.cashAccount : (bank?.name ?? '')
     const rowsHtml = withBalance.map(r => `
@@ -298,7 +313,7 @@ th{background:#f3f4f6;padding:7px 10px;border-bottom:2px solid #e5e7eb;text-alig
 
       {/* Summary cards */}
       {accountId && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className={`grid gap-4 ${hasProjected ? 'grid-cols-2 md:grid-cols-5' : 'grid-cols-2 md:grid-cols-4'}`}>
           <div className="card py-3">
             <p className="text-xs text-gray-500">{t.openingBalance}</p>
             <p className="text-xl font-bold text-white">{formatCurrency(openingBalance, cur)}</p>
@@ -315,6 +330,13 @@ th{background:#f3f4f6;padding:7px 10px;border-bottom:2px solid #e5e7eb;text-alig
             <p className="text-xs text-gray-500">{t.closingBalance}</p>
             <p className={`text-xl font-bold ${closingBalance >= 0 ? 'text-white' : 'text-red-400'}`}>{formatCurrency(closingBalance, cur)}</p>
           </div>
+          {hasProjected && (
+            <div className="card py-3 border-blue-700/40 bg-blue-900/10">
+              <p className="text-xs text-blue-400">{t.projectedBalance}</p>
+              <p className={`text-xl font-bold ${projectedBalance >= 0 ? 'text-blue-300' : 'text-red-400'}`}>{formatCurrency(projectedBalance, cur)}</p>
+              <p className="text-[10px] text-gray-600 mt-0.5">{t.projectedHint}</p>
+            </div>
+          )}
         </div>
       )}
 

@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, memo, useMemo, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { formatCurrency, formatDate, paymentTypeIcon, today, isValidDate } from '../utils/helpers'
-import { Plus, Pencil, Trash2, X, Search, CreditCard, Paperclip, Image, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Search, CreditCard, Paperclip, Image, ChevronDown, ChevronUp, Printer } from 'lucide-react'
 import { useT } from '../hooks/useT'
 import {
   usePayments, useSuppliers, useProjects, useBanks,
@@ -75,11 +75,14 @@ const L = {
     confirmDelete: 'Delete this payment?',
     currentAccLabel: 'Current Bank Accounts',
     checksBoxLabel: 'Checks Box Accounts',
-    editOnlyNotes: 'Only notes can be edited after saving.',
+    editOnlyNotes: 'Only notes and invoice links can be edited after saving.',
+    linkInvoices: 'Link to Invoices',
     checksOnRecord: 'Checks on Record',
     issuedChecks: 'Issued Checks',
     usedBoxChecks: 'Used from Box',
     checkDue: 'due',
+    printVoucher: 'Payment Voucher',
+    printBtn: 'Print',
   },
   ar: {
     title: 'مدفوعات صادرة',
@@ -141,11 +144,14 @@ const L = {
     confirmDelete: 'حذف هذه الدفعة؟',
     currentAccLabel: 'الحسابات البنكية الجارية',
     checksBoxLabel: 'صناديق الشيكات',
-    editOnlyNotes: 'يمكن تعديل الملاحظات فقط بعد الحفظ.',
+    editOnlyNotes: 'يمكن تعديل الملاحظات وروابط الفواتير فقط بعد الحفظ.',
+    linkInvoices: 'ربط بالفواتير',
     checksOnRecord: 'الشيكات المسجلة',
     issuedChecks: 'الشيكات الصادرة',
     usedBoxChecks: 'مستخدم من الصندوق',
     checkDue: 'استحقاق',
+    printVoucher: 'سند صرف',
+    printBtn: 'طباعة',
   },
 } as const
 
@@ -200,6 +206,230 @@ const EMPTY: Omit<Payment, 'id' | 'createdAt'> = {
   bankAccountId: '', checkId: '',
   checkNumber: '', checkIssuerName: '', checkPayeeName: '', checkDueDate: '',
   date: today(), description: '', notes: '', attachments: [],
+}
+
+// ── Print Payment Modal ───────────────────────────────────────────────────────
+
+function PrintPaymentModal({ payment, onClose }: { payment: Payment; onClose: () => void }) {
+  const t = useT(L)
+  const { suppliers, projects, banks, checks: allChecks, settings } = useStore()
+  const isAr = settings.language === 'ar'
+
+  const supplier     = suppliers.find(s => s.id === payment.supplierId)
+  const project      = projects.find(p => p.id === payment.projectId)
+  const bank         = banks.find(b => b.id === payment.bankAccountId)
+  const issuedChecks = allChecks.filter((c: Check) => c.paymentId === payment.id && c.type === 'issued')
+  const boxChecks    = allChecks.filter((c: Check) => c.paymentId === payment.id && c.type === 'received' && c.status === 'paid_to')
+  const hasChecks    = issuedChecks.length > 0 || boxChecks.length > 0
+
+  const methodLabel = payment.type === 'cash'
+    ? (isAr ? 'نقدي' : 'Cash')
+    : payment.type === 'check'
+    ? (isAr ? 'شيك' : 'Check')
+    : (isAr ? 'تحويل بنكي' : 'Bank Transfer')
+
+  function doPrint() {
+    const dir = isAr ? 'rtl' : 'ltr'
+    const lbl = {
+      voucher:     isAr ? 'سند صرف / دفع'       : 'Payment Voucher',
+      supplier:    isAr ? 'المورد'               : 'Supplier',
+      project:     isAr ? 'المشروع'              : 'Project',
+      paidFrom:    isAr ? 'مدفوع من حساب'        : 'Paid From',
+      description: isAr ? 'الوصف'                : 'Description',
+      notes:       isAr ? 'ملاحظات'              : 'Notes',
+      checkNo:     isAr ? 'رقم الشيك'            : 'Check #',
+      payee:       isAr ? 'المستفيد'             : 'Payee',
+      issuer:      isAr ? 'الساحب'               : 'Issuer',
+      dueDate:     isAr ? 'تاريخ الاستحقاق'      : 'Due Date',
+      bankAcc:     isAr ? 'البنك'                : 'Bank',
+      amount:      isAr ? 'المبلغ'               : 'Amount',
+      total:       isAr ? 'الإجمالي'             : 'Total',
+      checks:      isAr ? 'الشيكات'              : 'Checks',
+      preparedBy:  isAr ? 'أُعِدَّ بواسطة'        : 'Prepared by',
+      authorizedBy:isAr ? 'اعتمد'                : 'Authorized by',
+      receivedBy:  isAr ? 'استلم'                : 'Received by',
+    }
+    const ra = isAr ? 'left' : 'right'
+
+    const issuedRows = issuedChecks.map((c: Check) => {
+      const chkBank = banks.find(b => b.id === c.bankAccountId)
+      return `<tr>
+        <td>${c.checkNumber}</td>
+        <td>${c.payeeName || '—'}</td>
+        <td>${formatDate(c.dueDate)}</td>
+        <td>${chkBank ? chkBank.name + (chkBank.bankName ? ` (${chkBank.bankName})` : '') : '—'}</td>
+        <td style="text-align:${ra}">${formatCurrency(c.amount, c.currency)}</td>
+      </tr>`
+    }).join('')
+
+    const boxRows = boxChecks.map((c: Check) => `<tr>
+      <td>${c.checkNumber}</td>
+      <td>${c.issuerName || '—'}</td>
+      <td>${formatDate(c.dueDate)}</td>
+      <td>—</td>
+      <td style="text-align:${ra}">${formatCurrency(c.amount, c.currency)}</td>
+    </tr>`).join('')
+
+    const html = `<!DOCTYPE html>
+<html dir="${dir}" lang="${settings.language}">
+<head><meta charset="utf-8">
+<title>${lbl.voucher} — ${payment.id}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,'Noto Sans Arabic',sans-serif;padding:28px 36px;color:#1a1a1a;font-size:13px}
+.hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1a1a1a;padding-bottom:14px;margin-bottom:20px}
+.co-name{font-size:18px;font-weight:700}
+.co-sub{font-size:11px;color:#555;margin-top:3px;line-height:1.5}
+.doc-side{text-align:${ra}}
+.doc-title{font-size:16px;font-weight:700}
+.doc-id{font-size:12px;color:#444;margin-top:3px}
+.doc-date{font-size:12px;color:#666;margin-top:2px}
+.badge{display:inline-block;background:#f0f0f0;border:1px solid #ccc;border-radius:4px;padding:2px 10px;font-size:11px;font-weight:600;margin-top:4px}
+.info{width:100%;border-collapse:collapse;margin-bottom:18px}
+.info td{padding:6px 8px;font-size:13px;border-bottom:1px solid #f0f0f0}
+.info td:first-child{color:#666;width:32%;font-weight:500}
+.info td:last-child{font-weight:600}
+.sec-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;border-bottom:1px solid #ddd;padding-bottom:4px;margin-bottom:8px}
+.chks{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:18px}
+.chks th{background:#f5f5f5;border:1px solid #ddd;padding:6px 8px;font-weight:600}
+.chks td{border:1px solid #ddd;padding:6px 8px}
+.total{display:flex;justify-content:space-between;border-top:2px solid #1a1a1a;margin-top:8px;padding-top:10px;font-size:16px;font-weight:700}
+.sig{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-top:40px}
+.sig-box{border-top:1px solid #aaa;padding-top:6px;text-align:center;font-size:11px;color:#666}
+.footer{margin-top:20px;text-align:center;font-size:10px;color:#aaa;border-top:1px solid #eee;padding-top:8px}
+@media print{body{padding:12mm 16mm}@page{size:A4;margin:0}}
+</style></head>
+<body>
+<div class="hdr">
+  <div>
+    <div class="co-name">${settings.companyName || '&nbsp;'}</div>
+    <div class="co-sub">${[settings.companyPhone, settings.companyAddress].filter(Boolean).join(' &nbsp;·&nbsp; ')}</div>
+  </div>
+  <div class="doc-side">
+    <div class="doc-title">${lbl.voucher}</div>
+    <div class="doc-id">${payment.id}</div>
+    <div class="doc-date">${formatDate(payment.date)}</div>
+    <span class="badge">${methodLabel}</span>
+  </div>
+</div>
+<table class="info">
+  <tr><td>${lbl.supplier}</td><td>${supplier?.name ?? '—'}</td></tr>
+  ${project ? `<tr><td>${lbl.project}</td><td>${project.name}</td></tr>` : ''}
+  ${bank ? `<tr><td>${lbl.paidFrom}</td><td>${bank.name}${bank.bankName ? ` (${bank.bankName})` : ''}</td></tr>` : ''}
+  <tr><td>${lbl.description}</td><td>${payment.description}</td></tr>
+  ${payment.notes ? `<tr><td>${lbl.notes}</td><td>${payment.notes}</td></tr>` : ''}
+</table>
+${hasChecks ? `
+<div class="sec-title">${lbl.checks}</div>
+<table class="chks">
+  <thead><tr>
+    <th>${lbl.checkNo}</th>
+    <th>${issuedChecks.length > 0 ? lbl.payee : lbl.issuer}</th>
+    <th>${lbl.dueDate}</th>
+    <th>${lbl.bankAcc}</th>
+    <th>${lbl.amount}</th>
+  </tr></thead>
+  <tbody>${issuedRows}${boxRows}</tbody>
+</table>` : ''}
+<div class="total"><span>${lbl.total}</span><span>${formatCurrency(payment.amount, payment.currency || 'ILS')}</span></div>
+<div class="sig">
+  <div class="sig-box">${lbl.preparedBy}</div>
+  <div class="sig-box">${lbl.authorizedBy}</div>
+  <div class="sig-box">${lbl.receivedBy}</div>
+</div>
+<div class="footer">${settings.companyName ? settings.companyName + ' &nbsp;·&nbsp; ' : ''}${payment.id} &nbsp;·&nbsp; ${formatDate(payment.date)}</div>
+</body></html>`
+
+    const win = window.open('', '_blank', 'width=700,height=850')
+    if (!win) return
+    win.document.write(html)
+    win.document.close()
+    win.print()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4">
+      <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-md shadow-2xl p-6 space-y-4">
+
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-white">{t.printVoucher}</h3>
+            <p className="text-xs text-gray-500 font-mono">{payment.id}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-white"><X className="w-5 h-5" /></button>
+        </div>
+
+        {/* Preview */}
+        <div className="bg-gray-900/60 rounded-xl p-4 space-y-2.5 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-400">{t.colDate}</span>
+            <span className="text-white">{formatDate(payment.date)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">{t.colLinkedTo}</span>
+            <span className="text-white font-medium">{supplier?.name ?? '—'}</span>
+          </div>
+          {project && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">{t.project}</span>
+              <span className="text-gray-300">{project.name}</span>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <span className="text-gray-400">{t.paymentMethod}</span>
+            <span className="text-gray-300">{methodLabel}</span>
+          </div>
+          {bank && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">{t.paidFrom}</span>
+              <span className="text-gray-300">{bank.name}</span>
+            </div>
+          )}
+          {payment.description && (
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-400 shrink-0">{t.description}</span>
+              <span className="text-gray-300 text-right truncate max-w-[200px]">{payment.description}</span>
+            </div>
+          )}
+          {hasChecks && (
+            <div className="border-t border-gray-700 pt-2 space-y-1.5">
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{t.checksOnRecord}</p>
+              {issuedChecks.map((c: Check) => (
+                <div key={c.id} className="grid grid-cols-4 gap-1 text-xs items-center">
+                  <span className="font-mono text-yellow-400">#{c.checkNumber}</span>
+                  <span className="text-gray-400 truncate">{c.payeeName}</span>
+                  <span className="text-gray-500 text-center">{formatDate(c.dueDate)}</span>
+                  <span className="text-white text-right">{formatCurrency(c.amount, c.currency)}</span>
+                </div>
+              ))}
+              {boxChecks.map((c: Check) => (
+                <div key={c.id} className="grid grid-cols-4 gap-1 text-xs items-center">
+                  <span className="font-mono text-blue-400">#{c.checkNumber}</span>
+                  <span className="text-gray-400 truncate">{c.issuerName}</span>
+                  <span className="text-gray-500 text-center">{formatDate(c.dueDate)}</span>
+                  <span className="text-white text-right">{formatCurrency(c.amount, c.currency)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {payment.notes && (
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-400 shrink-0">{t.notes}</span>
+              <span className="text-gray-500 text-right text-xs truncate max-w-[200px]">{payment.notes}</span>
+            </div>
+          )}
+          <div className="flex justify-between border-t border-gray-700 pt-2 font-bold text-base">
+            <span className="text-gray-400">{t.colAmount}</span>
+            <span className="text-red-400">{formatCurrency(payment.amount, payment.currency || 'ILS')}</span>
+          </div>
+        </div>
+
+        <button className="btn-primary w-full flex items-center justify-center gap-2" onClick={doPrint}>
+          <Printer className="w-4 h-4" /> {t.printBtn}
+        </button>
+      </div>
+    </div>
+  )
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
@@ -346,7 +576,11 @@ function Modal({
         if (next.getMonth() !== ((d.getMonth() + 1) % 12)) {
           next.setDate(0) // last day of the intended month
         }
-        return next.toISOString().split('T')[0]
+        // Use local date parts to avoid UTC timezone shift (toISOString uses UTC)
+        const y  = next.getFullYear()
+        const mo = String(next.getMonth() + 1).padStart(2, '0')
+        const d2 = String(next.getDate()).padStart(2, '0')
+        return `${y}-${mo}-${d2}`
       })()
 
       return [...es, {
@@ -490,61 +724,6 @@ function Modal({
                 </div>
               )}
             </div>
-
-            {/* ── Invoice multi-select ── */}
-            {form.supplierId && supplierInvoices.length > 0 && (
-              <div>
-                <button
-                  type="button"
-                  className="flex items-center gap-2 w-full text-left"
-                  onClick={() => setInvoicesPanelOpen(o => !o)}
-                >
-                  <label className="label cursor-pointer flex-1 mb-0">{t.reconcileInvoices}</label>
-                  {selectedInvoiceIds.length > 0 && (
-                    <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded-full">
-                      {selectedInvoiceIds.length} {t.invoicesSelected}
-                    </span>
-                  )}
-                  {invoicesPanelOpen
-                    ? <ChevronUp className="w-4 h-4 text-gray-500" />
-                    : <ChevronDown className="w-4 h-4 text-gray-500" />}
-                </button>
-
-                {invoicesPanelOpen && (
-                  <div className="mt-2 max-h-44 overflow-y-auto bg-gray-900/60 rounded-xl border border-gray-700 divide-y divide-gray-700/50">
-                    {supplierInvoices.map(inv => {
-                      const outstanding = Math.max(0, inv.total - (inv.paidAmount || 0))
-                      const checked = selectedInvoiceIds.includes(inv.id)
-                      return (
-                        <label
-                          key={inv.id}
-                          className="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-700/40 cursor-pointer"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleInvoice(inv.id)}
-                            className="w-4 h-4 rounded accent-yellow-500"
-                          />
-                          <span className="flex-1 text-xs text-gray-300 font-mono">{inv.id}</span>
-                          <span className="text-xs text-gray-500">{formatDate(inv.date)}</span>
-                          <span className="text-xs font-semibold text-red-400">
-                            {formatCurrency(outstanding, inv.currency || 'ILS')}
-                          </span>
-                        </label>
-                      )
-                    })}
-                  </div>
-                )}
-
-                {selectedInvoiceIds.length > 0 && selectedInvoicesTotal > 0 && (
-                  <p className="text-xs text-gray-400 mt-1.5 text-right">
-                    {selectedInvoiceIds.length} {t.invoicesSelected} ·{' '}
-                    <span className="text-yellow-400 font-medium">{formatCurrency(selectedInvoicesTotal)}</span>
-                  </p>
-                )}
-              </div>
-            )}
 
             {/* ── Project ── */}
             {projects.length > 0 && (
@@ -863,6 +1042,63 @@ function Modal({
             </div>
           </fieldset>
 
+          {/* ── Invoice multi-select (always editable — even in edit mode) ── */}
+          {form.supplierId && supplierInvoices.length > 0 && (
+            <div>
+              <button
+                type="button"
+                className="flex items-center gap-2 w-full text-left"
+                onClick={() => setInvoicesPanelOpen(o => !o)}
+              >
+                <label className="label cursor-pointer flex-1 mb-0">
+                  {isEdit ? t.linkInvoices : t.reconcileInvoices}
+                </label>
+                {selectedInvoiceIds.length > 0 && (
+                  <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded-full">
+                    {selectedInvoiceIds.length} {t.invoicesSelected}
+                  </span>
+                )}
+                {invoicesPanelOpen
+                  ? <ChevronUp className="w-4 h-4 text-gray-500" />
+                  : <ChevronDown className="w-4 h-4 text-gray-500" />}
+              </button>
+
+              {invoicesPanelOpen && (
+                <div className="mt-2 max-h-44 overflow-y-auto bg-gray-900/60 rounded-xl border border-gray-700 divide-y divide-gray-700/50">
+                  {supplierInvoices.map(inv => {
+                    const outstanding = Math.max(0, inv.total - (inv.paidAmount || 0))
+                    const checked = selectedInvoiceIds.includes(inv.id)
+                    return (
+                      <label
+                        key={inv.id}
+                        className="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-700/40 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleInvoice(inv.id)}
+                          className="w-4 h-4 rounded accent-yellow-500"
+                        />
+                        <span className="flex-1 text-xs text-gray-300 font-mono">{inv.id}</span>
+                        <span className="text-xs text-gray-500">{formatDate(inv.date)}</span>
+                        <span className="text-xs font-semibold text-red-400">
+                          {formatCurrency(outstanding, inv.currency || 'ILS')}
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+
+              {selectedInvoiceIds.length > 0 && selectedInvoicesTotal > 0 && (
+                <p className="text-xs text-gray-400 mt-1.5 text-right">
+                  {selectedInvoiceIds.length} {t.invoicesSelected} ·{' '}
+                  <span className="text-yellow-400 font-medium">{formatCurrency(selectedInvoicesTotal)}</span>
+                </p>
+              )}
+            </div>
+          )}
+
           {/* ── Read-only check cards (edit mode, check payment) ── */}
           {isEdit && isCheck && (editIssuedChecks.length > 0 || editBoxChecks.length > 0) && (
             <div className="space-y-3">
@@ -943,9 +1179,10 @@ interface RowProps {
   typeLabel:  string
   onEdit:     () => void
   onDelete:   () => void
+  onPrint:    () => void
 }
 const PaymentRow = memo(function PaymentRow({
-  payment, supplier, checkLabel, filesLabel, typeLabel, onEdit, onDelete,
+  payment, supplier, checkLabel, filesLabel, typeLabel, onEdit, onDelete, onPrint,
 }: RowProps) {
   return (
     <tr className="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
@@ -974,6 +1211,9 @@ const PaymentRow = memo(function PaymentRow({
       </td>
       <td className="px-5 py-3">
         <div className="flex items-center gap-2 justify-end">
+          <button className="text-gray-500 hover:text-blue-400" title="Print" onClick={onPrint}>
+            <Printer className="w-4 h-4" />
+          </button>
           <button className="text-gray-500 hover:text-yellow-400" onClick={onEdit}>
             <Pencil className="w-4 h-4" />
           </button>
@@ -1002,8 +1242,9 @@ export default function Payments() {
 
   const supplierById = useById(suppliers)
 
-  const [search, setSearch] = useState('')
-  const [modal, setModal]   = useState<{ open: boolean; payment?: Payment }>({ open: false })
+  const [search, setSearch]           = useState('')
+  const [modal, setModal]             = useState<{ open: boolean; payment?: Payment }>({ open: false })
+  const [printPayment, setPrintPayment] = useState<Payment | null>(null)
   // Supplier pre-fill from "Make Payment" shortcut on Suppliers page
   const [quickSupplierId, setQuickSupplierId] = useState('')
 
@@ -1041,8 +1282,12 @@ export default function Payments() {
     boxCheckEntries: BoxCheckEntry[],
   ) {
     if (modal.payment) {
-      // Edit mode: only notes may change
-      updatePayment(modal.payment.id, { notes: data.notes })
+      // Edit mode: notes and invoice links may change
+      updatePayment(modal.payment.id, {
+        notes: data.notes,
+        purchaseInvoiceIds: data.purchaseInvoiceIds,
+        purchaseInvoiceId: data.purchaseInvoiceId,
+      })
     } else {
       // Create the payment (checkNumber='' so no auto-creation by store)
       const payment = addPayment(data)
@@ -1136,6 +1381,7 @@ export default function Payments() {
                   typeLabel={t[PAYMENT_TYPE_KEY[p.type]]}
                   onEdit={() => setModal({ open: true, payment: p })}
                   onDelete={() => { if (confirm(t.confirmDelete)) deletePayment(p.id) }}
+                  onPrint={() => setPrintPayment(p)}
                 />
               ))}
             </tbody>
@@ -1147,6 +1393,10 @@ export default function Payments() {
             onPageChange={setPage} onPageSizeChange={setPageSize}
           />
         </div>
+      )}
+
+      {printPayment && (
+        <PrintPaymentModal payment={printPayment} onClose={() => setPrintPayment(null)} />
       )}
 
       {modal.open && (

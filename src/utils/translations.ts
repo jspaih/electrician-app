@@ -31,6 +31,7 @@ const en = {
   'nav.balanceSheet': 'Balance Sheet',
   'nav.incomeStatement': 'Income Statement',
   'nav.accountMappings': 'Account Mappings',
+  'nav.bankReconciliation': 'Bank Reconciliation',
 
   // Groups
   'group.overview': 'Overview',
@@ -179,6 +180,7 @@ const ar: Record<keyof typeof en, string> = {
   'nav.balanceSheet': 'الميزانية العمومية',
   'nav.incomeStatement': 'قائمة الدخل',
   'nav.accountMappings': 'ربط الحسابات',
+  'nav.bankReconciliation': 'التسوية البنكية',
 
   // Groups
   'group.overview': 'نظرة عامة',
