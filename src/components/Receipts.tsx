@@ -39,6 +39,8 @@ const L = {
     chooseBankAcc: '-- Bank account --',
     settleInvoice: 'Settle Sales Invoice (optional)',
     noInvoice: '-- None --',
+    clientDue: 'Outstanding balance',
+    outstanding: 'outstanding',
     notes: 'Notes',
     cancel: 'Cancel',
     save: 'Save Receipt',
@@ -99,6 +101,8 @@ const L = {
     chooseBankAcc: '-- الحساب البنكي --',
     settleInvoice: 'تسوية فاتورة مبيعات (اختياري)',
     noInvoice: '-- لا يوجد --',
+    clientDue: 'الرصيد المستحق',
+    outstanding: 'متبقي',
     notes: 'ملاحظات',
     cancel: 'إلغاء',
     save: 'حفظ الإيصال',
@@ -399,6 +403,17 @@ function Modal({
     ? (salesInvoices as any[]).filter((inv: any) => inv.clientId === form.clientId)
     : []
 
+  // Only unpaid / partially-paid invoices are eligible for settlement
+  const unpaidClientInvoices = clientInvoices.filter(
+    (inv: any) => inv.status !== 'paid' && inv.status !== 'cancelled'
+  )
+
+  // Total outstanding across all unpaid invoices for this client
+  const clientTotalDue = unpaidClientInvoices.reduce(
+    (sum: number, inv: any) => sum + Math.max(0, inv.total - (inv.paidAmount || 0)),
+    0
+  )
+
   const pmIcons = {
     cash: <Banknote className="w-4 h-4" />,
     check: <Archive className="w-4 h-4" />,
@@ -511,6 +526,41 @@ function Modal({
                 </select>
               </div>
             </div>
+
+            {/* ── Client outstanding balance + Invoice selector (new receipts only) ── */}
+            {!isEdit && form.clientId && (
+              <div className="space-y-3">
+                {/* Outstanding balance badge */}
+                {clientTotalDue > 0 && (
+                  <div className="flex items-center justify-between bg-red-900/20 border border-red-700/40 rounded-lg px-3 py-2">
+                    <span className="text-xs text-gray-400">{t.clientDue}</span>
+                    <span className="text-sm font-bold text-red-400">{formatCurrency(clientTotalDue)}</span>
+                  </div>
+                )}
+
+                {/* Invoice selector — shown right after client when invoices exist */}
+                {unpaidClientInvoices.length > 0 && (
+                  <div>
+                    <label className="label">{t.settleInvoice}</label>
+                    <select
+                      className="input"
+                      value={form.salesInvoiceId ?? ''}
+                      onChange={e => setField('salesInvoiceId', e.target.value)}
+                    >
+                      <option value="">{t.noInvoice}</option>
+                      {unpaidClientInvoices.map((inv: any) => {
+                        const outstanding = Math.max(0, inv.total - (inv.paidAmount || 0))
+                        return (
+                          <option key={inv.id} value={inv.id}>
+                            {inv.id} — {formatCurrency(outstanding, inv.currency ?? 'ILS')} {t.outstanding} ({formatDate(inv.date)})
+                          </option>
+                        )
+                      })}
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Amount + Currency + Date — only for non-check methods */}
             {pm !== 'check' && (
@@ -664,10 +714,10 @@ function Modal({
 
           </fieldset>
 
-          {/* Settle sales invoice — always editable even in edit mode */}
-          {clientInvoices.length > 0 && (
+          {/* Invoice selector in edit mode — kept outside fieldset so it stays editable */}
+          {isEdit && clientInvoices.length > 0 && (
             <div>
-              <label className="label">{isEdit ? t.linkInvoice : t.settleInvoice}</label>
+              <label className="label">{t.linkInvoice}</label>
               <select className="input" value={form.salesInvoiceId ?? ''}
                 onChange={e => setField('salesInvoiceId', e.target.value)}>
                 <option value="">{t.noInvoice}</option>
